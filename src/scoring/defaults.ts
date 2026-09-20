@@ -1,4 +1,4 @@
-import type { CandidateProfile } from './scoring/types'
+import type { CandidateProfile } from './types'
 
 export const emptyProfile: CandidateProfile = {
   language: 'basic',
