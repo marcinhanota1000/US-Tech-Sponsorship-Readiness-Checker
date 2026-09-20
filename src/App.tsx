@@ -1,81 +1,187 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { calculateScore } from './scoring/calculateScore'
 import { emptyProfile } from './scoring/defaults'
 import type { CandidateProfile } from './scoring/types'
-import './App.css'
 
-const questions = [
-  { key: 'language', title: 'Como você avalia seu inglês para o ambiente de trabalho?', options: [['basic', 'Não falo ou apenas leio/escrevo', '0 pontos'], ['intermediate', 'Intermediário: entendo, mas travo na fala', '10 pontos'], ['advanced', 'Avançado/fluente: converso e defendo ideias técnicas', '30 pontos']] },
-  { key: 'experience', title: 'Quantos anos de experiência prática você tem em tecnologia?', options: [['junior', 'Menos de 2 anos (júnior)', '0 pontos'], ['mid', 'De 2 a 5 anos (pleno)', '20 pontos'], ['senior', 'Mais de 5 anos (sênior/especialista)', '40 pontos']] },
-  { key: 'demand', title: 'Sua stack envolve tecnologias de alta demanda ou liderança?', options: [['standard', 'Não, trabalho com tecnologias comuns no mercado', '5 pontos'], ['high-demand', 'Sim: IA, DevOps, Cloud, Dados, Rust, Go ou liderança', '20 pontos']] },
-  { key: 'education', title: 'Qual é o seu nível de formação acadêmica?', options: [['courses', 'Sem diploma universitário / cursos livres', '5 pontos'], ['bachelors', 'Tecnólogo ou bacharelado completo', '15 pontos'], ['postgraduate', 'Pós-graduação, mestrado ou doutorado', '30 pontos']] },
-  { key: 'international', title: 'Você já trabalhou para empresas do exterior ou tem cidadania europeia?', options: [['false', 'Não', '0 pontos'], ['true', 'Sim, tenho experiência internacional ou dupla cidadania', '20 pontos']] },
-] as const
+type QuestionKey = keyof CandidateProfile
+type Question = {
+  key: QuestionKey
+  title: string
+  hint: string
+  options: ReadonlyArray<readonly [string, string, string]>
+}
 
-function App() {
-  const [profile, setProfile] = useState<CandidateProfile>(emptyProfile)
-  const [submitted, setSubmitted] = useState(false)
-  const result = calculateScore(profile)
+const questions: Question[] = [
+  {
+    key: 'language',
+    title: 'Como você avalia seu inglês para o ambiente de trabalho?',
+    hint: 'Comunicação é parte essencial do processo internacional.',
+    options: [
+      ['basic', 'Básico', 'Leio e escrevo, mas ainda não converso com segurança'],
+      ['intermediate', 'Intermediário', 'Consigo participar de reuniões e explicar meu trabalho'],
+      ['advanced', 'Avançado', 'Tenho fluência para colaborar e liderar em inglês'],
+    ],
+  },
+  {
+    key: 'experience',
+    title: 'Quantos anos de experiência prática você tem em tecnologia?',
+    hint: 'Considere experiência profissional, freelance e projetos consistentes.',
+    options: [
+      ['junior', 'Menos de 2 anos', 'Em início de carreira'],
+      ['mid', 'De 2 a 5 anos', 'Experiência plena e resultados comprovados'],
+      ['senior', 'Mais de 5 anos', 'Senioridade, autonomia e liderança'],
+    ],
+  },
+  {
+    key: 'demand',
+    title: 'Sua stack envolve tecnologias de alta demanda ou liderança?',
+    hint: 'Especialização clara ajuda recrutadores a entenderem seu valor.',
+    options: [
+      ['standard', 'Tecnologias comuns', 'Atuo com uma stack ampla e consolidada'],
+      ['high-demand', 'Alta demanda ou liderança', 'Tenho especialidade rara ou lidero iniciativas'],
+    ],
+  },
+  {
+    key: 'education',
+    title: 'Qual é o seu nível de formação acadêmica?',
+    hint: 'Formação é apenas um dos sinais avaliados por empresas.',
+    options: [
+      ['courses', 'Cursos livres', 'Certificações e aprendizado autodidata'],
+      ['bachelors', 'Tecnólogo ou bacharelado', 'Graduação concluída ou em andamento'],
+      ['postgraduate', 'Pós-graduação ou mestrado', 'Especialização acadêmica avançada'],
+    ],
+  },
+  {
+    key: 'international',
+    title: 'Você já trabalhou para empresas do exterior ou tem cidadania europeia?',
+    hint: 'Vivência internacional pode reduzir barreiras de adaptação.',
+    options: [
+      ['false', 'Ainda não', 'Minha experiência é predominantemente local'],
+      ['true', 'Sim', 'Já trabalhei com times globais ou tenho cidadania europeia'],
+    ],
+  },
+]
 
-  function updateProfile(key: keyof CandidateProfile, value: string) {
-    setProfile((current) => ({ ...current, [key]: key === 'international' ? value === 'true' : value } as CandidateProfile))
+function readSavedProfile(): CandidateProfile | null {
+  try {
+    const saved = sessionStorage.getItem('sponsorship-profile')
+    return saved ? (JSON.parse(saved) as CandidateProfile) : null
+  } catch {
+    return null
   }
+}
 
-  function reset() {
-    setProfile(emptyProfile)
-    setSubmitted(false)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+function navigate(path: string) {
+  window.history.pushState({}, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function Header({ compact = false }: { compact?: boolean }) {
+  return (
+    <header className={`site-header ${compact ? 'site-header--compact' : ''}`}>
+      <button className="brand" onClick={() => navigate('/')} aria-label="Voltar para o início">
+        <span className="brand-mark">S</span>
+        <span>Sponsorship<span className="brand-muted"> / readiness</span></span>
+      </button>
+      <span className="header-status"><i /> avaliação informativa</span>
+    </header>
+  )
+}
+
+function AssessmentPage({ onComplete }: { onComplete: (profile: CandidateProfile) => void }) {
+  const [profile, setProfile] = useState<CandidateProfile>(emptyProfile)
+  const [activeQuestion, setActiveQuestion] = useState(0)
+
+  function updateProfile(key: QuestionKey, value: string) {
+    setProfile((current) => ({
+      ...current,
+      [key]: key === 'international' ? value === 'true' : value,
+    } as CandidateProfile))
   }
 
   return (
-    <main>
-      <header className="hero">
-        <div className="container hero-content">
-          <span className="eyebrow">CAREER READINESS TOOL</span>
-          <h1>Você está pronto para buscar sponsorship?</h1>
-          <p>Responda cinco perguntas e descubra como seu perfil profissional e pessoal pode ser percebido por empresas internacionais.</p>
-          <div className="trust-note"><span>✦</span> Avaliação informativa em menos de 2 minutos</div>
-        </div>
-      </header>
+    <>
+      <Header />
+      <main className="page-shell">
+        <section className="intro-grid">
+          <div>
+            <p className="kicker">US TECH CAREER / 01</p>
+            <h1>Seu próximo capítulo profissional começa com clareza.</h1>
+            <p className="lead">Uma leitura rápida dos sinais que empresas internacionais costumam considerar ao avaliar perfis para posições com potencial de sponsorship.</p>
+            <div className="intro-meta"><span><b>05</b> perguntas</span><span><b>02</b> minutos</span><span><b>100%</b> informativo</span></div>
+          </div>
+          <aside className="side-note"><span className="quote-mark">“</span><p>Não é uma promessa de visto. É um ponto de partida mais inteligente para sua estratégia.</p><span className="side-note-line" /></aside>
+        </section>
 
-      <div className="container layout">
-        {!submitted ? (
-          <section className="card form-card" aria-labelledby="form-title">
-            <div className="section-heading"><span className="step">01 — 05</span><h2 id="form-title">Conte um pouco sobre você</h2><p>Não existe resposta certa. Seja honesto para receber um resultado mais útil.</p></div>
-            <div className="questions">
-              {questions.map((question, index) => (
-                <fieldset key={question.key} className="question">
-                  <legend><span>{String(index + 1).padStart(2, '0')}</span>{question.title}</legend>
-                  <div className="options">
-                    {question.options.map(([value, label, pointsLabel]) => (
-                      <label className={`option ${String(profile[question.key]) === value ? 'selected' : ''}`} key={value}>
-                        <input type="radio" name={question.key} value={value} checked={String(profile[question.key]) === value} onChange={(event) => updateProfile(question.key, event.target.value)} />
-                        <span className="radio" /><span className="option-copy"><strong>{label}</strong><small>{pointsLabel}</small></span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              ))}
-            </div>
-            <button className="primary-button" onClick={() => { setSubmitted(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Ver meu resultado <span>→</span></button>
-            <p className="form-disclaimer">Esta é uma triagem inicial, não uma previsão jurídica nem uma garantia de contratação ou aprovação de visto.</p>
-          </section>
-        ) : (
-          <section className="results" aria-labelledby="result-title">
-            <button className="back-button" onClick={reset}>← Refazer avaliação</button>
-            <div className="card result-card">
-              <div className="result-top"><div><span className="eyebrow">SEU RESULTADO</span><h2 id="result-title">{result.status}</h2><p>{result.summary}</p></div><div className="score-circle"><strong>{result.score}</strong><span>/ 100</span></div></div>
-              <div className="probability"><span>Probabilidade estimada de atrair sponsorship</span><strong>{result.probability}</strong></div>
-              <div className="breakdown"><h3>Como sua pontuação foi formada</h3>{result.breakdown.map((item) => <div className="bar-row" key={item.label}><div><span>{item.label}</span><strong>{item.points} / {item.maximum}</strong></div><div className="bar"><i style={{ width: `${(item.points / item.maximum) * 100}%` }} /></div></div>)}</div>
-            </div>
-            <div className="card next-steps"><h3>Próximos passos recomendados</h3><ul>{result.nextSteps.map((step) => <li key={step}><span>✓</span>{step}</li>)}</ul></div>
-            <div className="disclaimer"><strong>Importante</strong><p>Este resultado é apenas informativo. Não oferece aconselhamento jurídico, não garante sponsorship e não representa a decisão de uma empresa ou autoridade migratória.</p></div>
-          </section>
-        )}
-      </div>
-      <footer><div className="container">Sponsorship Readiness Checker <span>•</span> Para fins informativos</div></footer>
-    </main>
+        <section className="assessment-card" aria-labelledby="assessment-title">
+          <div className="progress-row"><span>SEU PERFIL</span><span>{String(activeQuestion + 1).padStart(2, '0')} <em>/ 05</em></span></div>
+          <div className="progress-track"><i style={{ width: `${((activeQuestion + 1) / questions.length) * 100}%` }} /></div>
+          <div className="section-title"><div><p className="kicker">CHECK-IN</p><h2 id="assessment-title">Conte um pouco sobre você.</h2></div><p>Escolha a opção que melhor representa seu momento atual.</p></div>
+          <div className="questions">
+            {questions.map((question, index) => (
+              <fieldset className={`question ${activeQuestion === index ? 'question--active' : ''}`} key={question.key}>
+                <legend><span>{String(index + 1).padStart(2, '0')}</span><strong>{question.title}</strong></legend>
+                <p className="question-hint">{question.hint}</p>
+                <div className="options">
+                  {question.options.map(([value, label, description]) => (
+                    <label className={`option ${String(profile[question.key]) === value ? 'selected' : ''}`} key={value}>
+                      <input type="radio" name={question.key} value={value} checked={String(profile[question.key]) === value} onChange={() => { updateProfile(question.key, value); setActiveQuestion(Math.min(index + 1, questions.length - 1)) }} />
+                      <span className="radio" /><span className="option-copy"><strong>{label}</strong><small>{description}</small></span><span className="option-arrow">↗</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+          </div>
+          <button className="primary-button" onClick={() => onComplete(profile)}>Ver minha leitura <span>↗</span></button>
+          <p className="form-disclaimer"><span>ⓘ</span> Triagem inicial. Não é aconselhamento jurídico, previsão de aprovação ou garantia de contratação.</p>
+        </section>
+      </main>
+      <Footer />
+    </>
   )
+}
+
+function ResultsPage({ profile }: { profile: CandidateProfile }) {
+  const result = useMemo(() => calculateScore(profile), [profile])
+  return (
+    <>
+      <Header compact />
+      <main className="page-shell results-shell">
+        <div className="results-heading"><div><p className="kicker">US TECH CAREER / 02</p><h1>Sua leitura de prontidão.</h1><p className="lead">Use este resultado para escolher onde concentrar sua energia — e não como uma sentença sobre seu futuro.</p></div><button className="text-button" onClick={() => navigate('/')}>← Refazer avaliação</button></div>
+        <section className="result-hero-card">
+          <div><p className="kicker">ÍNDICE DE READINESS</p><div className="score-line"><strong>{result.score}</strong><span>/ 100</span></div><h2>{result.status}</h2><p>{result.summary}</p></div>
+          <div className="score-orbit"><div><strong>{result.score}</strong><span>score</span></div></div>
+        </section>
+        <div className="results-grid"><section className="result-panel"><div className="panel-heading"><div><p className="kicker">BREAKDOWN</p><h3>Como sua pontuação foi formada</h3></div><span className="panel-tag">5 sinais</span></div>{result.breakdown.map((item) => <div className="bar-row" key={item.label}><div><span>{item.label}</span><strong>{item.points} <small>/ {item.maximum}</small></strong></div><div className="bar"><i style={{ width: `${Math.min(100, (item.points / item.maximum) * 100)}%` }} /></div></div>)}</section><section className="result-panel next-panel"><p className="kicker">PRÓXIMO MOVIMENTO</p><h3>Onde colocar seu foco agora.</h3><ul>{result.nextSteps.map((step) => <li key={step}><span>✓</span>{step}</li>)}</ul></section></div>
+        <aside className="result-disclaimer"><strong>Uma nota importante</strong><p>Este resultado é exclusivamente informativo. Sponsorship depende de critérios migratórios, da empresa, da vaga e de decisões de contratação. Converse com um advogado de imigração para orientação jurídica.</p></aside>
+      </main>
+      <Footer />
+    </>
+  )
+}
+
+function Footer() { return <footer><div className="footer-inner"><span>Sponsorship / readiness</span><span>Para fins informativos · 2026</span></div></footer> }
+
+function App() {
+  const [path, setPath] = useState(window.location.pathname)
+  const [profile, setProfile] = useState<CandidateProfile | null>(readSavedProfile)
+
+  useEffect(() => {
+    const handlePopState = () => setPath(window.location.pathname)
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  function complete(nextProfile: CandidateProfile) {
+    sessionStorage.setItem('sponsorship-profile', JSON.stringify(nextProfile))
+    setProfile(nextProfile)
+    navigate('/resultado')
+  }
+
+  if (path === '/resultado' && profile) return <ResultsPage profile={profile} />
+  return <AssessmentPage onComplete={complete} />
 }
 
 export default App
